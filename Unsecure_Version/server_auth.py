@@ -52,7 +52,6 @@ async def authenticate_user(reader: asyncio.StreamReader, writer: asyncio.Stream
         
         # Send msg to user about authenticaton attempt
         await send_user_msg(send_str, CODES.NO_WRITE_BACK, writer)
-        await asyncio.sleep(1)
 
     # If credentials could not be authenticated, raise exception
     if attempts == 3:
