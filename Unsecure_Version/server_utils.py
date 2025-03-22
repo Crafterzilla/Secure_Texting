@@ -2,6 +2,7 @@ import asyncio
 from json_msg import CODES, msg
 
 BUFFER = 256
+MAX_WAIT_TIME = 60
 
 """
 Representation of a User. Easier to pass around for args rather than all three things
@@ -24,12 +25,12 @@ async def get_user_input(prompt: str, reader: asyncio.StreamReader, writer: asyn
             await send_user_msg(prompt, CODES.WRITE_BACK, writer)
 
             # Read User Response
-            data = await reader.read(BUFFER)
+            data = await asyncio.wait_for(reader.read(BUFFER), timeout=MAX_WAIT_TIME)
 
             # If nothing is data, raise exception
             if not data:
                raise asyncio.exceptions.IncompleteReadError(bytes(0), 256) 
-
+            
            # If success break from the loop
             break
         except asyncio.exceptions.IncompleteReadError:

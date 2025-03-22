@@ -2,7 +2,6 @@ import asyncio
 import sqlite3
 import server_utils as utils
 import server_auth
-import signal
 
 # Default Port and IP for server. Server runs on localhost.
 # Please open firewall at Port 8888 for server to accept connections
@@ -39,6 +38,16 @@ async def handle_client(reader: asyncio.StreamReader, writer: asyncio.StreamWrit
         await utils.send_user_msg("3 Failed Attemps!!! Closing connection", utils.CODES.EXIT, writer)
         await close_connection(writer)
         return
+    except asyncio.TimeoutError:
+        # Close Connection due to timeout error
+        mesg = f"Timeout error: No data received by client ({addr})"
+        print(mesg)
+        await utils.send_user_msg(mesg, utils.CODES.NO_WRITE_BACK, writer)
+        await close_connection(writer)
+        return
+    except ConnectionError as e:
+        print(f"Connection error: {e}")
+        return
 
 
     # Write data to client
@@ -63,6 +72,7 @@ async def init_server():
         await asyncio.Event().wait()
     except asyncio.CancelledError:
         print("Shutting down gracefully...")
+        server.close_clients()
         server.close()
         await server.wait_closed()
         print("Server stopped.")
