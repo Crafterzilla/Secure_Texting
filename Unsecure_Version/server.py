@@ -2,6 +2,7 @@ import asyncio
 import sqlite3
 import server_utils as utils
 import server_auth
+import database
 
 # Default Port and IP for server. Server runs on localhost.
 # Please open firewall at Port 8888 for server to accept connections
@@ -59,6 +60,10 @@ Overall very high level function. Starts the server and then runs handle_client 
 connection. The rest of the implementation is dealt with later.
 """
 async def init_server():
+    # Init Database
+    await database.init_database()
+    print("Database init at ./chat.db")
+
     # Start Server coroutine
     server = await asyncio.start_server(handle_client, IP, PORT)
     

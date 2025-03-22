@@ -4,22 +4,14 @@
 # three attempts, kill the connection
 
 import asyncio
+from database import check_credentials
 from server_utils import get_user_input, client, send_user_msg
-from json_msg import CODES, msg
-
+from json_msg import CODES
+from datetime import date
 
 class FailedAuth(Exception):
     pass
-"""
-Function to authenticate credentials
-TODO: Make it read from database instead of test
-"""
-def authenticate(username: str, password: str) -> bool:
-    # For debug purposes
-    test_user = "user"
-    test_password = "password"
 
-    return (username == test_user and password == test_password)
 
 """
 Attempts to gather input from connected client. It then attempts to authenticate 3
@@ -43,11 +35,13 @@ async def authenticate_user(reader: asyncio.StreamReader, writer: asyncio.Stream
         print(f"Password: {password}")
         
         # Attempt to authenticate. If successsful, store msg in send_str
-        if authenticate(username, password):
-            send_str = f"Hello {username}!!"
+        if await check_credentials(username, password):
+            send_str = f"Hello {username}!!! Log on Successful on {date.today()}"
+            # Send msg to user about authenticaton attempt
+            await send_user_msg(send_str, CODES.NO_WRITE_BACK, writer)
             break
         else:
-            send_str = f"Invalid credentials. Attempt {attempts}!"
+            send_str = f"Invalid credentials. Attempt {attempts + 1}!"
             attempts += 1
         
         # Send msg to user about authenticaton attempt
