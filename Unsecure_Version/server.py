@@ -2,6 +2,7 @@ import asyncio
 import sqlite3
 import server_utils as utils
 import server_auth
+import signal
 
 # Default Port and IP for server. Server runs on localhost.
 # Please open firewall at Port 8888 for server to accept connections
@@ -52,15 +53,23 @@ async def init_server():
     # Start Server coroutine
     server = await asyncio.start_server(handle_client, IP, PORT)
     
-    # Serve Server Forever
-    async with server:
-        print(f"Starting Server on {IP}:{PORT}")
-        await server.serve_forever()
+    # Print stuff to console
+    print(f"Starting Server on {IP}:{PORT}")
+    print(f"To close server, type Ctrl+C")
+
+    # Start serving
+    try:
+        await server.start_serving()  
+        await asyncio.Event().wait()
+    except asyncio.CancelledError:
+        print("Shutting down gracefully...")
+        server.close()
+        await server.wait_closed()
+        print("Server stopped.")
 
 
-async def main():
-    await init_server()
-
+def main():
+    asyncio.run(init_server())
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    main()
