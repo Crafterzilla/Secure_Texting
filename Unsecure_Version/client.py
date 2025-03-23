@@ -49,6 +49,23 @@ async def write_messages(writer):
     writer.write(f"{message}".encode())
     await writer.drain()
 
+async def preauth(reader: asyncio.StreamReader, writer: asyncio.StreamWriter):
+    while True:
+        # Get message from server. Wait a sec before getting new message
+        await asyncio.sleep(0.5)
+        message = await read_messages(reader)
+        
+        # Print message
+        print(f"{message.msg}")
+
+        # Write back to server if nothing else requested
+        if message.code == CODES.WRITE_BACK.value:
+            await write_messages(writer)
+        elif message.code == CODES.EXIT.value:
+            raise asyncio.CancelledError
+        elif message.code == CODES.AUTHENTICATED.value:
+            break
+
 
 async def main():
     # Open and connect to server. Get back reader and writer
@@ -59,31 +76,16 @@ async def main():
     # Run Client indefendiently. If it received something from the server,
     # by default send back something. However, it a CODE is sent from the
     # server to the client, skip the send back, and handle the code
-    while True:
-        try:
-            # Get message from server. Wait a sec before getting new message
-            await asyncio.sleep(0.5)
-            message = await read_messages(reader)
-            
-            # Print message
-            print(f"{message.msg}")
-
-            # Write back to server if nothing else requested
-            if message.code == CODES.WRITE_BACK.value:
-                await write_messages(writer)
-            elif message.code == CODES.EXIT.value:
-                writer.close()
-                await writer.wait_closed()
-                break
-        except ConnectionError as e:
-            print(f"Connection error: {e}")
-            break
-        except asyncio.CancelledError:
-            print("Disconnecting from server...")
-            writer.close()
-            await writer.wait_closed()
-            print("Disconnected")
-            break
+    try:
+        # Pre authentication loop
+        await preauth(reader, writer)
+    except ConnectionError as e:
+        print(f"Connection error: {e}")
+    except asyncio.CancelledError:
+        print("Disconnecting from server...")
+        writer.close()
+        await writer.wait_closed()
+        print("Disconnected")
 
 
 if __name__ == "__main__":

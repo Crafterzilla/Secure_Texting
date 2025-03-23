@@ -38,7 +38,7 @@ async def authenticate_user(reader: asyncio.StreamReader, writer: asyncio.Stream
         if await check_credentials(username, password):
             send_str = f"Hello {username}!!! Log on Successful on {date.today()}"
             # Send msg to user about authenticaton attempt
-            await send_user_msg(send_str, CODES.NO_WRITE_BACK, writer)
+            await send_user_msg(send_str, CODES.AUTHENTICATED, writer)
             break
         else:
             send_str = f"Invalid credentials. Attempt {attempts + 1}!"

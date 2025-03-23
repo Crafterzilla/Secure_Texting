@@ -5,6 +5,7 @@ class CODES(Enum):
     SUCCESS = "SUCCESS"
     WRITE_BACK = "WRITE_BACK"
     NO_WRITE_BACK = "NO_WRITE_BACK"
+    AUTHENTICATED = "AUTH"
     EXIT = "EXIT"
     ERROR = "ERROR"
 
