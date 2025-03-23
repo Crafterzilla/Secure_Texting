@@ -7,7 +7,7 @@ import asyncio
 from database import check_credentials
 from server_utils import get_user_input, client, send_user_msg
 from json_msg import CODES
-from datetime import date
+from datetime import datetime
 
 class FailedAuth(Exception):
     pass
@@ -36,7 +36,7 @@ async def authenticate_user(reader: asyncio.StreamReader, writer: asyncio.Stream
         
         # Attempt to authenticate. If successsful, store msg in send_str
         if await check_credentials(username, password):
-            send_str = f"Hello {username}!!! Log on Successful on {date.today()}"
+            send_str = f"Hello {username}!!! Log on Successful on {datetime.now().strftime("%m/%d/%Y, %H:%M:%S")}"
             # Send msg to user about authenticaton attempt
             await send_user_msg(send_str, CODES.AUTHENTICATED, writer)
             break

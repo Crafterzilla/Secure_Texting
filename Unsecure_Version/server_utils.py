@@ -2,7 +2,7 @@ import asyncio
 from json_msg import CODES, msg
 
 BUFFER = 256
-MAX_WAIT_TIME = 60
+MAX_WAIT_TIME = 240
 
 """
 Representation of a User. Easier to pass around for args rather than all three things

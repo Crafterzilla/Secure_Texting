@@ -1,7 +1,7 @@
 import asyncio
-import sqlite3
 import server_utils as utils
 import server_auth
+from server_interclient_comms import client_to_client_comms
 import database
 
 # Default Port and IP for server. Server runs on localhost.
@@ -10,12 +10,13 @@ PORT = 8888
 IP = '127.0.0.1'
 
 # Global set of clients for server to keep track of
-clients: set[utils.client] = set()
+clients: dict[str, utils.client] = dict()
 
 """
 Close Connection to Client
 """
 async def close_connection(writer: asyncio.StreamWriter) -> None:
+    # Close connection
     print(f"Closing connection with {writer.get_extra_info('peername')}")
     await utils.send_user_msg("Server is closing connection with you", utils.CODES.EXIT, writer)
     writer.close()
@@ -29,30 +30,55 @@ async def handle_client(reader: asyncio.StreamReader, writer: asyncio.StreamWrit
     # Print out to the logs client connection
     addr = writer.get_extra_info('peername')
     print(f"New connection from {addr}")
+    
+    # For use when closing connection
+    client_username = ""
 
     # Attempt to Authentiate User. If success add to client list
     try:
         client = await server_auth.authenticate_user(reader, writer)
-        clients.add(client)
+        client_username = client.username
+        
+        # Wait a sec so client can change from sync to async execution
+        await asyncio.sleep(1)
+        
+        # Check if client already exists
+        if client.username not in clients:
+            clients[client.username] = client
+            await client_to_client_comms(client, clients)
+        else:
+            send_str = f"User {client.username} already logged in. Closing connection"
+            await utils.send_user_msg(send_str, utils.CODES.NO_WRITE_BACK, writer)
+
+        # Write data to client
+        await close_connection(writer)
+
     except server_auth.FailedAuth:
         # Tell user to fuck off since he failed 
-        await utils.send_user_msg("3 Failed Attemps!!! Closing connection", utils.CODES.EXIT, writer)
+        await utils.send_user_msg("3 Failed Attemps!!! Closing connection", utils.CODES.NO_WRITE_BACK, writer)
+        await close_connection(writer)
+        return
+    except asyncio.IncompleteReadError:
+        # Close Connection due to invalid read
+        mesg = f"Incomplete Read Error: likely client disconnected suddenly ({addr})"
+        await utils.send_user_msg(mesg, utils.CODES.NO_WRITE_BACK, writer)
         await close_connection(writer)
         return
     except asyncio.TimeoutError:
         # Close Connection due to timeout error
         mesg = f"Timeout error: No data received by client ({addr})"
-        print(mesg)
         await utils.send_user_msg(mesg, utils.CODES.NO_WRITE_BACK, writer)
         await close_connection(writer)
         return
-    except ConnectionError as e:
-        print(f"Connection error: {e}")
+    except ConnectionResetError as e:
+        print(f"Connection was reset by {addr}")
         return
-
-
-    # Write data to client
-    await close_connection(writer)
+    except ConnectionError as e:
+        print(f"{addr} | Connection error: {e}")
+        return
+    finally:
+        # Remove client from dict
+        clients.pop(client_username, None)
 
 
 """
