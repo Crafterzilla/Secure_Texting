@@ -13,6 +13,8 @@ class client:
         self.writer = writer
         self.username = username
         self.message_history = None
+    def __str__(self) -> str:
+        return self.username
 
 """
 Send Client a json object prompt and receive in the end a beaultuiful string
