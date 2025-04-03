@@ -56,7 +56,8 @@ async def client_to_client_comms(client: client, clients: dict[str, client]):
             elif arg == CLIENT_CMDS.TO.value:
                 pass
             elif arg == CLIENT_CMDS.HELP.value:
-                pass
+                help_msg = "Commands: GETUSERS, SEND message TO username, HELP, EXIT"
+                await send_user_msg(help_msg, CODES.SUCCESS, client.writer)
             else:
                 await send_user_msg(f"CMD ({arg}) is invalid!", CODES.ERROR, client.writer)
 
@@ -77,8 +78,7 @@ async def check_send(user_args: list[str], client: client, clients: dict[str, cl
         if user_to_recieve_msg not in clients:
             await send_user_msg(f"User ({user_to_recieve_msg} does not exist or is inactive)", CODES.ERROR, client.writer)
         else:
-            send_msg = f"[{datetime.now().strftime("%m/%d/%Y, %H:%M:%S")}] {client.username}: {user_args[1]}"
-
+            send_msg = f"[{datetime.now().strftime('%m/%d/%Y, %H:%M:%S')}] {client.username}: {user_args[1]}"
             # SEND THE MSG TO USER HOORAYYY!!!
             await send_user_msg(send_msg, CODES.SUCCESS, clients[user_to_recieve_msg].writer)
     else:
