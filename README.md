@@ -63,3 +63,30 @@ python client.py
 - [ ] Create Version 2
 - [ ] Analyze the versions
 - [ ] Write Report
+
+## Hashing
+
+Hashing has now been implemented in the latest version, the password message (only) is hashed befored it is sent to the server, which means when intercepted it won't be plain text. The password verification is still successful. Here is the intercepted password message in Wireshark, as you can see its not plaintext, however its still extremely easy to crack.
+
+The given Sha256 encryption took
+
+    Elapsed Time: 0.209s
+    Trial Count: 1
+
+to decode. This can be improved upon by using salts or by using a different encryption method like bycrypt. Ideally, we would use a zero-trust authentication system with encrypted messages. In a perfect system we could have Secure Remote Password (SRP) Protocol and TLS (a standard encryption protocol). For this project Hashing and Encryption is more than enough however
+
+### Secure Remote Password (SRP)
+
+- A user to authenticate to a server without sending the password or password hash
+- Mutual authentication (both parties verify each other)
+- Establishment of a strong shared session key
+
+### TLS (Transport Layer Security)
+TLS provides:
+
+- Encrypted channel for all communications
+- Server authentication (client verifies server identity)
+- Optional client authentication
+- Protection against tampering and message forgery
+
+![Alt text](image.png)

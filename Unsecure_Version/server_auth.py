@@ -1,6 +1,6 @@
 # Purpose:
 # Take client input and attempt and see if user is valid and 
-# validate the user authenticate attmept. If failure, after
+# validate the user authenticate attempt. If failure, after
 # three attempts, kill the connection
 
 import asyncio
@@ -30,12 +30,13 @@ async def authenticate_user(reader: asyncio.StreamReader, writer: asyncio.Stream
         username = await get_user_input("Type in your username: ", reader, writer)
         print(f"Username: {username}")
             
-        # Try getting password
-        password = await get_user_input("Type in your password: ", reader, writer)
-        print(f"Password: {password}")
+        # Try getting password (which is now pre-hashed by client)
+        hashed_password = await get_user_input("Type in your password: ", reader, writer)
+        print(f"Received hashed password") # Don't print actual hash
         
-        # Attempt to authenticate. If successsful, store msg in send_str
-        if await check_credentials(username, password):
+        # Attempt to authenticate. 
+        # Since password already hashed by client, pass directly to check_credentials
+        if await check_credentials(username, hashed_password):
             send_str = f"Hello {username}!!! Log on Successful on {datetime.now().strftime('%m/%d/%Y, %H:%M:%S')}"
             await send_user_msg(send_str, CODES.AUTHENTICATED, writer)
             break
@@ -43,7 +44,7 @@ async def authenticate_user(reader: asyncio.StreamReader, writer: asyncio.Stream
             send_str = f"Invalid credentials. Attempt {attempts + 1}!"
             attempts += 1
         
-        # Send msg to user about authenticaton attempt
+        # Send msg to user about authentication attempt
         await send_user_msg(send_str, CODES.NO_WRITE_BACK, writer)
 
     # If credentials could not be authenticated, raise exception

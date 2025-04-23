@@ -8,6 +8,7 @@ class CODES(Enum):
     AUTHENTICATED = "AUTH"
     EXIT = "EXIT"
     ERROR = "ERROR"
+    SALT = "SALT"  # New code for salt exchange
 
 """
 This class holds a CODE and a string. It can be created from a json dict
@@ -45,10 +46,3 @@ class msg:
         Return a string representation of the Msg object.
         """
         return f'{{"code": "{self.code}", "msg": "{self.msg}"}}'
-
-
-if __name__ == "__main__":
-    test = b'{"code": "WRITE_BACK", "msg": "Type in your username"}'
-    d = json.loads(test.decode())
-    print(d)
-    d = msg.from_json_dict(d)
