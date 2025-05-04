@@ -86,7 +86,7 @@ Overall very high level function. Starts the server and then runs handle_client 
 connection. The rest of the implementation is dealt with later.
 """
 async def init_server():
-    # Init Database
+    # Init Database - use the sync version for simplicity
     await database.init_database()
     print("Database init at ./chat.db")
 

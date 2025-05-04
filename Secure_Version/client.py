@@ -2,6 +2,10 @@ import asyncio
 from asyncio.exceptions import IncompleteReadError
 import json
 from json_msg import CODES, msg
+import getpass  # For secure password input
+
+# Import the hashing function
+from hash_utils import hash_password
 
 HOST_IP = '127.0.0.1'
 PORT = 8888
@@ -27,11 +31,9 @@ async def read_messages(reader: asyncio.StreamReader) -> msg:
         # Decode data
         data_str = data.decode()
         
-        # print(data)
         # Turn data into dict then to two strs
         json_message = json.loads(data_str)
         json_message = msg.from_json_dict(json_message)
-
 
     except asyncio.exceptions.IncompleteReadError:
         print("Server Sent Incomplete Data\n")
@@ -39,7 +41,7 @@ async def read_messages(reader: asyncio.StreamReader) -> msg:
 
     except json.JSONDecodeError:
         print("Error when attempting to decode json")
-        print("Likey an issue with your network or the server")
+        print("Likely an issue with your network or the server")
     
     # Return String without newline
     return json_message
@@ -54,6 +56,22 @@ async def write_messages(writer) -> str:
     await writer.drain()
     return message
 
+"""
+Special function to handle password input and hashing
+"""
+async def write_password(writer) -> str:
+    # Get password securely (will not show on screen)
+    password = getpass.getpass("> ")
+    
+    # Hash password before sending
+    hashed_password = hash_password(password)
+    
+    # Send the hashed password instead of the plain one
+    writer.write(f"{hashed_password}".encode())
+    await writer.drain()
+    
+    return password  # Return original for local use if needed
+
 async def preauth(reader: asyncio.StreamReader, writer: asyncio.StreamWriter):
     while True:
         # Get message from server. Wait a sec before getting new message
@@ -65,12 +83,15 @@ async def preauth(reader: asyncio.StreamReader, writer: asyncio.StreamWriter):
 
         # Write back to server if nothing else requested
         if message.code == CODES.WRITE_BACK.value:
-            await write_messages(writer)
+            # Special case for password prompt
+            if "password" in message.msg.lower():
+                await write_password(writer)
+            else:
+                await write_messages(writer)
         elif message.code == CODES.EXIT.value:
             raise asyncio.CancelledError
         elif message.code == CODES.AUTHENTICATED.value:
             break
-
 
 async def postauth(reader: asyncio.StreamReader, writer: asyncio.StreamWriter):
     async def postauth_reader(reader: asyncio.StreamReader):
@@ -116,14 +137,11 @@ async def postauth(reader: asyncio.StreamReader, writer: asyncio.StreamWriter):
 
 
 async def main():
-    # Open and connect to server. Get back reader and writer
+    # Open and connect to server
     reader, writer = await asyncio.open_connection(HOST_IP, PORT)
     print(f"Connected to {writer.get_extra_info('peername')}")
     
-
-    # Run Client indefendiently. If it received something from the server,
-    # by default send back something. However, it a CODE is sent from the
-    # server to the client, skip the send back, and handle the code
+    # Run Client
     try:
         # Pre authentication loop
         await preauth(reader, writer)
