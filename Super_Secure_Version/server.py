@@ -1,4 +1,3 @@
-# minimal_server.py - Simplified secure server
 import asyncio
 import json
 import os
@@ -250,6 +249,8 @@ async def handle_client(reader, writer):
                             
                             cmd = cmd_data.decode().strip()
                             
+                            print(cmd, cmd.upper())
+
                             if cmd.upper() == "EXIT":
                                 break
                             elif cmd.upper() == "GETUSERS":
