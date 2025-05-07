@@ -1,8 +1,8 @@
-# server_utils.py - Fixed version
+# server_utils.py - Updated for secure messaging
 import asyncio
 from json_msg import CODES, msg
 
-BUFFER = 256
+BUFFER = 2048  # Increased buffer size
 MAX_WAIT_TIME = 240
 
 """
@@ -32,7 +32,7 @@ async def get_user_input(prompt: str, reader: asyncio.StreamReader, writer: asyn
 
             # If nothing is data, raise exception
             if not data:
-               raise asyncio.exceptions.IncompleteReadError(bytes(0), 256) 
+               raise asyncio.exceptions.IncompleteReadError(bytes(0), BUFFER) 
             
            # If success break from the loop
             break

@@ -9,6 +9,7 @@ class CODES(Enum):
     EXIT = "EXIT"
     ERROR = "ERROR"
     SALT = "SALT"  # New code for salt exchange
+    CHALLENGE = "CHALLENGE"  # New code for challenge exchange
 
 """
 This class holds a CODE and a string. It can be created from a json dict

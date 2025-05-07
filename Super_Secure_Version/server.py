@@ -1,116 +1,317 @@
+# minimal_server.py - Simplified secure server
 import asyncio
-import server_utils as utils
-import server_auth
-from server_interclient_comms import client_to_client_comms
-import database
+import json
+import os
+import base64
+import sqlite3
+import hashlib
+import hmac
+from crypto.encryption import encrypt_message
+from hash_utils import generate_salt, hash_password, compute_challenge_response
 
-# Default Port and IP for server. Server runs on localhost.
-# Please open firewall at Port 8888 for server to accept connections
+# Constants
+HOST = '127.0.0.1'
 PORT = 8888
-IP = '127.0.0.1'
 
-# Global set of clients for server to keep track of
-clients: dict[str, utils.client] = dict()
+# Active clients
+clients = {}
 
-"""
-Close Connection to Client
-"""
-async def close_connection(writer: asyncio.StreamWriter) -> None:
-    # Close connection
-    print(f"Closing connection with {writer.get_extra_info('peername')}")
-    await utils.send_user_msg("Server is closing connection with you", utils.CODES.EXIT, writer)
-    writer.close()
-    await writer.wait_closed()
+def init_database():
+    """Initialize the database"""
+    conn = sqlite3.connect("chat.db")
+    cur = conn.cursor()
+    
+    # Create tables
+    cur.execute('''
+    CREATE TABLE IF NOT EXISTS members (
+        username TEXT PRIMARY KEY,
+        password_hash TEXT NOT NULL,
+        salt TEXT NOT NULL
+    )
+    ''')
+    
+    cur.execute('''
+    CREATE TABLE IF NOT EXISTS public_keys (
+        username TEXT PRIMARY KEY,
+        public_key TEXT NOT NULL,
+        FOREIGN KEY (username) REFERENCES members(username)
+    )
+    ''')
+    
+    conn.commit()
+    conn.close()
+    print("Database initialized.")
 
-"""
-This Function will handle the client at a high level. By that, it will first authenticate the user.
-After authentication is done, it will allow the user to send messages to OTHER ACTIVE USERS.
-"""
-async def handle_client(reader: asyncio.StreamReader, writer: asyncio.StreamWriter):
-    # Print out to the logs client connection
+def user_exists(username):
+    """Check if a user exists"""
+    conn = sqlite3.connect("chat.db")
+    cur = conn.cursor()
+    cur.execute("SELECT username FROM members WHERE username = ?", (username,))
+    result = cur.fetchone() is not None
+    conn.close()
+    return result
+
+def create_user(username, password_hash, salt, public_key):
+    """Create a new user"""
+    conn = sqlite3.connect("chat.db")
+    cur = conn.cursor()
+    
+    try:
+        # Insert into members table
+        cur.execute(
+            "INSERT INTO members (username, password_hash, salt) VALUES (?, ?, ?)",
+            (username, password_hash, salt)
+        )
+        
+        # Insert into public_keys table
+        cur.execute(
+            "INSERT INTO public_keys (username, public_key) VALUES (?, ?)",
+            (username, public_key)
+        )
+        
+        conn.commit()
+        return True
+    except Exception as e:
+        print(f"Error creating user: {e}")
+        return False
+    finally:
+        conn.close()
+
+def get_user_data(username):
+    """Get user data"""
+    conn = sqlite3.connect("chat.db")
+    cur = conn.cursor()
+    
+    try:
+        cur.execute("SELECT password_hash, salt FROM members WHERE username = ?", (username,))
+        result = cur.fetchone()
+        
+        if result:
+            cur.execute("SELECT public_key FROM public_keys WHERE username = ?", (username,))
+            public_key = cur.fetchone()
+            
+            return {
+                "password_hash": result[0],
+                "salt": result[1],
+                "public_key": public_key[0] if public_key else None
+            }
+        return None
+    except Exception as e:
+        print(f"Error getting user data: {e}")
+        return None
+    finally:
+        conn.close()
+
+async def handle_client(reader, writer):
+    """Handle a client connection"""
     addr = writer.get_extra_info('peername')
     print(f"New connection from {addr}")
     
-    # For use when closing connection
-    client_username = ""
-
-    # Attempt to Authentiate User. If success add to client list
     try:
-        client = await server_auth.authenticate_user(reader, writer)
-        client_username = client.username
+        # Send welcome message
+        writer.write("Enter '1' to login or '2' to register:".encode())
+        await writer.drain()
         
-        # Wait a sec so client can change from sync to async execution
-        await asyncio.sleep(1)
+        # Get choice
+        choice_data = await reader.read(1024)
+        if not choice_data:
+            return
         
-        # Check if client already exists
-        if client.username not in clients:
-            clients[client.username] = client
-            await client_to_client_comms(client, clients)
+        choice = choice_data.decode().strip()
+        
+        if choice == "2":  # REGISTER
+            # Send username prompt
+            writer.write("Enter username:".encode())
+            await writer.drain()
+            
+            # Get username
+            username_data = await reader.read(1024)
+            if not username_data:
+                return
+            
+            username = username_data.decode().strip()
+            
+            # Check if username exists
+            if user_exists(username):
+                writer.write(f"Username {username} already exists".encode())
+                await writer.drain()
+                return
+            
+            # Send password prompt
+            writer.write("Enter password:".encode())
+            await writer.drain()
+            
+            # Get password
+            password_data = await reader.read(1024)
+            if not password_data:
+                return
+            
+            password = password_data.decode().strip()
+            
+            # Generate salt
+            salt = generate_salt()
+            
+            # Hash password
+            password_hash = hash_password(password, salt)
+            
+            # Prompt for public key
+            writer.write("Send public key:".encode())
+            await writer.drain()
+            
+            # Get public key
+            public_key_data = await reader.read(2048)
+            if not public_key_data:
+                return
+            
+            public_key = public_key_data.decode().strip()
+            
+            # Create user
+            if create_user(username, password_hash, salt, public_key):
+                writer.write(f"User {username} created successfully!".encode())
+                await writer.drain()
+            else:
+                writer.write("Error creating user".encode())
+                await writer.drain()
+        
+        elif choice == "1":  # LOGIN
+            # Send username prompt
+            writer.write("Enter username:".encode())
+            await writer.drain()
+            
+            # Get username
+            username_data = await reader.read(1024)
+            if not username_data:
+                return
+            
+            username = username_data.decode().strip()
+            print(f"Login attempt: {username}")
+            
+            # Check if user exists
+            if not user_exists(username):
+                writer.write(f"Username {username} not found".encode())
+                await writer.drain()
+                return
+            
+            # Get user data
+            user_data = get_user_data(username)
+            if not user_data or not user_data["public_key"]:
+                writer.write("Error retrieving user data".encode())
+                await writer.drain()
+                return
+            
+            # Generate challenge
+            challenge = os.urandom(32)
+            challenge_b64 = base64.b64encode(challenge).decode()
+            
+            # Encrypt challenge
+            try:
+                encrypted_challenge = encrypt_message(challenge_b64, user_data["public_key"].encode())
+                
+                # Send challenge
+                writer.write(f"CHALLENGE {encrypted_challenge}".encode())
+                await writer.drain()
+                
+                # Wait for salt request
+                salt_request = await reader.read(1024)
+                if not salt_request or salt_request.decode().strip() != "GET_SALT":
+                    writer.write("Invalid salt request".encode())
+                    await writer.drain()
+                    return
+                
+                # Send salt
+                salt_msg = json.dumps({"code": "SALT", "msg": user_data["salt"]})
+                writer.write(salt_msg.encode())
+                await writer.drain()
+                
+                # Get response
+                response_data = await reader.read(1024)
+                if not response_data:
+                    return
+                
+                response = response_data.decode().strip()
+                
+                # Compute expected response
+                expected = compute_challenge_response(user_data["password_hash"], challenge_b64)
+                
+                # Verify
+                if hmac.compare_digest(expected, response):
+                    # Authentication successful
+                    writer.write(f"Hello {username}! Login successful.".encode())
+                    await writer.drain()
+                    
+                    # Chat loop
+                    clients[username] = writer
+                    
+                    try:
+                        while True:
+                            cmd_data = await reader.read(1024)
+                            if not cmd_data:
+                                break
+                            
+                            cmd = cmd_data.decode().strip()
+                            
+                            if cmd.upper() == "EXIT":
+                                break
+                            elif cmd.upper() == "GETUSERS":
+                                writer.write(f"Active users: {list(clients.keys())}".encode())
+                                await writer.drain()
+                            elif cmd.upper() == "HELP":
+                                help_text = "Commands: GETUSERS, HELP, SEND message TO username, EXIT"
+                                writer.write(help_text.encode())
+                                await writer.drain()
+                            elif cmd.upper().startswith("SEND ") and " TO " in cmd:
+                                parts = cmd.split(" TO ", 1)
+                                message = parts[0][5:]  # Skip "SEND "
+                                recipient = parts[1]
+                                
+                                if recipient in clients:
+                                    clients[recipient].write(f"[{username}]: {message}".encode())
+                                    await clients[recipient].drain()
+                                    writer.write(f"Message sent to {recipient}".encode())
+                                    await writer.drain()
+                                else:
+                                    writer.write(f"User {recipient} not online".encode())
+                                    await writer.drain()
+                            else:
+                                writer.write("Unknown command. Type HELP for commands.".encode())
+                                await writer.drain()
+                    finally:
+                        if username in clients:
+                            del clients[username]
+                else:
+                    writer.write("Authentication failed".encode())
+                    await writer.drain()
+            except Exception as e:
+                print(f"Error during login: {e}")
+                writer.write(f"Login error: {str(e)}".encode())
+                await writer.drain()
         else:
-            send_str = f"User {client.username} already logged in. Closing connection"
-            await utils.send_user_msg(send_str, utils.CODES.NO_WRITE_BACK, writer)
-
-        # Write data to client
-        await close_connection(writer)
-
-    except server_auth.FailedAuth:
-        # Tell user to fuck off since he failed 
-        await utils.send_user_msg("3 Failed Attemps!!! Closing connection", utils.CODES.NO_WRITE_BACK, writer)
-        await close_connection(writer)
-        return
-    except asyncio.IncompleteReadError:
-        # Close Connection due to invalid read
-        mesg = f"Incomplete Read Error: likely client disconnected suddenly ({addr})"
-        await utils.send_user_msg(mesg, utils.CODES.NO_WRITE_BACK, writer)
-        await close_connection(writer)
-        return
-    except asyncio.TimeoutError:
-        # Close Connection due to timeout error
-        mesg = f"Timeout error: No data received by client ({addr})"
-        await utils.send_user_msg(mesg, utils.CODES.NO_WRITE_BACK, writer)
-        await close_connection(writer)
-        return
-    except ConnectionResetError as e:
-        print(f"Connection was reset by {addr}")
-        return
-    except ConnectionError as e:
-        print(f"{addr} | Connection error: {e}")
-        return
-    finally:
-        # Remove client from dict
-        clients.pop(client_username, None)
-
-
-"""
-Overall very high level function. Starts the server and then runs handle_client for each
-connection. The rest of the implementation is dealt with later.
-"""
-async def init_server():
-    # Init Database - use the sync version for simplicity
-    await database.init_database()
-    print("Database init at ./chat.db")
-
-    # Start Server coroutine
-    server = await asyncio.start_server(handle_client, IP, PORT)
+            writer.write("Invalid choice".encode())
+            await writer.drain()
     
-    # Print stuff to console
-    print(f"Starting Server on {IP}:{PORT}")
-    print(f"To close server, type Ctrl+C")
+    except Exception as e:
+        print(f"Error handling client: {e}")
+    
+    finally:
+        writer.close()
+        await writer.wait_closed()
+        print(f"Connection closed with {addr}")
 
-    # Start serving
-    try:
-        await server.start_serving()  
-        await asyncio.Event().wait()
-    except asyncio.CancelledError:
-        print("Shutting down gracefully...")
-        server.close_clients()
-        server.close()
-        await server.wait_closed()
-        print("Server stopped.")
-
-
-def main():
-    asyncio.run(init_server())
+async def main():
+    # Initialize database
+    init_database()
+    
+    # Start server
+    server = await asyncio.start_server(handle_client, HOST, PORT)
+    
+    addr = server.sockets[0].getsockname()
+    print(f"Server running on {addr}")
+    
+    async with server:
+        await server.serve_forever()
 
 if __name__ == "__main__":
-    main()
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        print("Server shutdown by user")

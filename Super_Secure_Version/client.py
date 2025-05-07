@@ -1,238 +1,219 @@
-# client.py - Final clean version
+# minimal_client.py - Simplified secure client
 import asyncio
-from asyncio.exceptions import IncompleteReadError
 import json
 import os
 import getpass
 import sys
-import signal
-import traceback
+from crypto.key_management import generate_key_pair
+from crypto.encryption import encrypt_message, decrypt_message
+from hash_utils import hash_password, compute_challenge_response
 
-from json_msg import CODES, msg
-
-HOST_IP = '127.0.0.1'
+# Constants
+HOST = '127.0.0.1'
 PORT = 8888
 
-BUFFER = 1024  # Increased buffer size
-MAX_WAIT_TIME = 60
-
-"""
-Reads a json message from the server
-"""
-async def read_messages(reader: asyncio.StreamReader) -> msg:
-    default_message = msg(CODES.SUCCESS.value, "No Message")
-
-    try:
-        # Attempts to read data from server
-        data = await reader.read(BUFFER)
-
-        # If nothing is data, raise exception
-        if not data:
-            raise asyncio.exceptions.IncompleteReadError(bytes(0), BUFFER)
-        
-        # Decode data
-        data_str = data.decode()
-        
-        try:
-            # Try to parse the JSON
-            json_data = json.loads(data_str)
-            json_message = msg.from_json_dict(json_data)
-            return json_message
-        except json.JSONDecodeError:
-            # Handle non-JSON data
-            print(f"Server: {data_str}")
-            return default_message
-
-    except asyncio.exceptions.IncompleteReadError:
-        print("Connection to server lost")
-        raise ConnectionError()
-    except Exception as e:
-        print(f"Error reading message: {str(e)}")
-        return default_message
-
-"""
-Send a message to the server
-"""
-async def write_messages(writer, message) -> str:
-    writer.write(f"{message}".encode())
-    await writer.drain()
-    return message
-
-async def preauth(reader: asyncio.StreamReader, writer: asyncio.StreamWriter):
-    username = ""
-    
-    while True:
-        # Get message from server
-        await asyncio.sleep(0.5)
-        message = await read_messages(reader)
-        
-        # Print message
-        print(f"{message.msg}")
-
-        # Write back to server if required
-        if message.code == CODES.WRITE_BACK.value:
-            # If asking about login/register
-            if "login or register" in message.msg.lower():
-                choice = input("> ")
-                await write_messages(writer, choice)
-            # If requesting username, save it
-            elif "username" in message.msg.lower():
-                username = input("> ")
-                await write_messages(writer, username)
-            # Handle password input
-            elif "password" in message.msg.lower():
-                password = getpass.getpass("> ")
-                await write_messages(writer, password)
-            else:
-                user_input = input("> ")
-                await write_messages(writer, user_input)
-        elif message.code == CODES.EXIT.value:
-            raise asyncio.CancelledError
-        elif message.code == CODES.AUTHENTICATED.value:
-            break
-    
-    return username
-
-async def postauth(reader: asyncio.StreamReader, writer: asyncio.StreamWriter, username: str):
-    print(f"Authenticated as {username}")
-    print("Type HELP for available commands")
-    
-    # Create event for clean shutdown
-    shutdown_event = asyncio.Event()
-    
-    # Create tasks for reading and writing
-    async def reader_task():
-        try:
-            while not shutdown_event.is_set():
-                try:
-                    # Read messages from server
-                    data = await reader.read(BUFFER)
-                    if not data:
-                        print("Server connection closed")
-                        shutdown_event.set()
-                        break
-                    
-                    # Decode and process the data
-                    data_str = data.decode()
-                    
-                    # Try to parse as JSON
-                    try:
-                        json_data = json.loads(data_str)
-                        if 'msg' in json_data:
-                            message = json_data['msg']
-                            print(f"\n{message}")
-                        else:
-                            print(f"\nServer: {data_str}")
-                    except json.JSONDecodeError:
-                        # If not JSON, print raw message
-                        print(f"\nServer: {data_str}")
-                    
-                    print("> ", end="", flush=True)
-                    
-                    # Small delay between reads
-                    await asyncio.sleep(0.1)
-                        
-                except asyncio.CancelledError:
-                    raise
-                except Exception as e:
-                    print(f"Error processing server message: {str(e)}")
-                    await asyncio.sleep(1)
-                    
-        except asyncio.CancelledError:
-            pass
-        except Exception as e:
-            print(f"\nReader error: {str(e)}")
-            shutdown_event.set()
-    
-    async def writer_task():
-        try:
-            while not shutdown_event.is_set():
-                try:
-                    message = input("> ")
-                    
-                    if not message.strip():  # Skip empty messages
-                        continue
-                    
-                    await write_messages(writer, message)
-                    
-                    # Small delay to allow response to arrive
-                    await asyncio.sleep(0.2)
-                    
-                    # Handle exit command
-                    if message.upper() == "EXIT":
-                        print("Exiting chat...")
-                        shutdown_event.set()
-                        break
-                except EOFError:
-                    # End of input (Ctrl+D)
-                    print("\nInput closed")
-                    shutdown_event.set()
-                    break
-                        
-        except asyncio.CancelledError:
-            pass
-        except KeyboardInterrupt:
-            print("\nExiting...")
-            shutdown_event.set()
-        except Exception as e:
-            print(f"\nWriter error: {str(e)}")
-            shutdown_event.set()
-    
-    # Run both tasks
-    reader_future = asyncio.create_task(reader_task())
-    writer_future = asyncio.create_task(writer_task())
-    
-    # Wait for shutdown event
-    await shutdown_event.wait()
-    
-    # Cancel both tasks
-    reader_future.cancel()
-    writer_future.cancel()
-    
-    # Wait for tasks to complete
-    await asyncio.gather(reader_future, writer_future, return_exceptions=True)
-
 async def main():
+    # Connect to server
     try:
-        # Connect to server
-        reader, writer = await asyncio.open_connection(HOST_IP, PORT)
-        print(f"Connected to {writer.get_extra_info('peername')}")
-        
-        # Run Client
-        try:
-            # Pre authentication loop - returns username if successful
-            username = await preauth(reader, writer)
-            
-            # Post authentication loop
-            await postauth(reader, writer, username)
-
-        except ConnectionError as e:
-            print(f"Connection error: {e}")
-        except asyncio.CancelledError:
-            print("Disconnecting from server...")
-        finally:
-            writer.close()
-            try:
-                await asyncio.wait_for(writer.wait_closed(), timeout=1.0)
-            except asyncio.TimeoutError:
-                pass
-            print("Disconnected")
+        reader, writer = await asyncio.open_connection(HOST, PORT)
+        print(f"Connected to {HOST}:{PORT}")
     except Exception as e:
-        print(f"Error connecting to server: {e}")
-        print(f"Make sure server is running at {HOST_IP}:{PORT}")
-
-def handle_signal(signal, frame):
-    print("\nProgram terminated")
-    sys.exit(0)
+        print(f"Connection error: {e}")
+        return
+    
+    try:
+        # Get welcome message
+        data = await reader.read(1024)
+        print(data.decode())
+        
+        # Choose login or register
+        choice = input("> ")
+        writer.write(choice.encode())
+        await writer.drain()
+        
+        if choice == "2":  # REGISTER
+            # Get username prompt
+            data = await reader.read(1024)
+            print(data.decode())
+            
+            # Enter username
+            username = input("> ")
+            writer.write(username.encode())
+            await writer.drain()
+            
+            # Get result or password prompt
+            data = await reader.read(1024)
+            response = data.decode()
+            print(response)
+            
+            if "exists" in response:
+                return
+            
+            # Enter password
+            password = getpass.getpass("> ")
+            writer.write(password.encode())
+            await writer.drain()
+            
+            # Get public key prompt
+            data = await reader.read(1024)
+            print(data.decode())
+            
+            # Generate key pair
+            print("Generating key pair...")
+            private_key, public_key = generate_key_pair()
+            
+            # Save keys
+            os.makedirs("keys", exist_ok=True)
+            with open(f"keys/{username}_private.pem", "wb") as f:
+                f.write(private_key)
+            with open(f"keys/{username}_public.pem", "wb") as f:
+                f.write(public_key)
+            
+            print(f"Keys saved to keys/{username}_private.pem and keys/{username}_public.pem")
+            
+            # Send public key
+            writer.write(public_key.decode().encode())
+            await writer.drain()
+            
+            # Get result
+            data = await reader.read(1024)
+            print(data.decode())
+            print("Registration complete. Restart client to login.")
+        
+        elif choice == "1":  # LOGIN
+            # Get username prompt
+            data = await reader.read(1024)
+            print(data.decode())
+            
+            # Enter username
+            username = input("> ")
+            writer.write(username.encode())
+            await writer.drain()
+            
+            # Get result or challenge
+            data = await reader.read(1024)
+            response = data.decode()
+            
+            if "not found" in response:
+                print(response)
+                return
+            
+            if "CHALLENGE" in response:
+                print("Received authentication challenge")
+                
+                # Extract challenge
+                challenge_parts = response.split("CHALLENGE ", 1)
+                if len(challenge_parts) < 2:
+                    print("Invalid challenge format")
+                    return
+                
+                encrypted_challenge = challenge_parts[1]
+                
+                try:
+                    # Load private key
+                    with open(f"keys/{username}_private.pem", "rb") as f:
+                        private_key = f.read()
+                except FileNotFoundError:
+                    print(f"Private key for {username} not found")
+                    return
+                
+                try:
+                    # Decrypt challenge
+                    decrypted_challenge = decrypt_message(encrypted_challenge, private_key)
+                    print("Challenge decrypted")
+                except Exception as e:
+                    print(f"Failed to decrypt challenge: {e}")
+                    return
+                
+                # Get password
+                password = getpass.getpass("Password: ")
+                
+                # Request salt
+                writer.write("GET_SALT".encode())
+                await writer.drain()
+                
+                # Get salt
+                data = await reader.read(1024)
+                try:
+                    salt_json = json.loads(data.decode())
+                    salt = salt_json["msg"]
+                    print("Received salt")
+                except Exception as e:
+                    print(f"Error parsing salt: {e}")
+                    print(f"Raw: {data.decode()}")
+                    return
+                
+                # Hash password
+                password_hash = hash_password(password, salt)
+                
+                # Compute response
+                response = compute_challenge_response(password_hash, decrypted_challenge)
+                
+                # Send response
+                writer.write(response.encode())
+                await writer.drain()
+                
+                # Get result
+                data = await reader.read(1024)
+                result = data.decode()
+                print(result)
+                
+                if "Login successful" in result:
+                    # Chat loop
+                    print("\nCommands: GETUSERS, HELP, SEND message TO username, EXIT")
+                    
+                    # Start reader task
+                    async def read_messages():
+                        while True:
+                            try:
+                                data = await reader.read(1024)
+                                if not data:
+                                    print("\nServer disconnected")
+                                    break
+                                print(f"\n{data.decode()}")
+                                print("> ", end="", flush=True)
+                            except Exception as e:
+                                print(f"\nError: {e}")
+                                break
+                    
+                    # Start the task
+                    task = asyncio.create_task(read_messages())
+                    
+                    try:
+                        while True:
+                            message = input("> ")
+                            
+                            if not message.strip():
+                                continue
+                            
+                            if message.upper() == "EXIT":
+                                break
+                            
+                            # Send message
+                            writer.write(message.encode())
+                            await writer.drain()
+                    except KeyboardInterrupt:
+                        print("\nExiting...")
+                    finally:
+                        task.cancel()
+                        try:
+                            await task
+                        except asyncio.CancelledError:
+                            pass
+    
+    except Exception as e:
+        print(f"Error: {e}")
+    
+    finally:
+        writer.close()
+        await writer.wait_closed()
+        print("Disconnected")
 
 if __name__ == "__main__":
-    # Register signal handler for Ctrl+C
-    signal.signal(signal.SIGINT, handle_signal)
+    # Make sure keys directory exists
+    os.makedirs("keys", exist_ok=True)
     
     try:
         asyncio.run(main())
     except KeyboardInterrupt:
-        print("\nProgram Ended")
-    except Exception as e:
-        print(f"Unexpected error: {e}")
-        traceback.print_exc()
+        print("\nExiting...")
